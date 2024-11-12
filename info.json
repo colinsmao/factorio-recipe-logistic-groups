@@ -1,0 +1,12 @@
+{
+  "name": "recipe-logistic-groups",
+  "author": "kelianmao",
+  "version": "0.1.0",
+  "title": "Recipe Logistic Groups",
+  "homepage": "",
+  "description": "Create and use logistic groups when requesting recipes",
+  "dependencies": [
+    "base"
+  ],
+  "factorio_version": "2.0"
+}

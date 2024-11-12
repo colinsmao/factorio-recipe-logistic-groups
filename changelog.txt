@@ -1,0 +1,7 @@
+---------------------------------------------------------------------------------------------------
+Version: 0.1.0
+Date: 12. 11. 2024
+  Major Features:
+    - Initial release.
+    - Creates logistic groups for recipes when pasting into a requester chest.
+    - Configurable multiplier options, including constant, and based on crafting time.
