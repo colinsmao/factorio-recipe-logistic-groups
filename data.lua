@@ -2,7 +2,7 @@ data:extend({
   {
     type = "custom-input",
     name = "alt-paste-mode",
-    key_sequence = "ALT + SHIFT + mouse-button-1"
+    key_sequence = "SHIFT + ALT + mouse-button-1"
   },
   {
     type = "custom-input",

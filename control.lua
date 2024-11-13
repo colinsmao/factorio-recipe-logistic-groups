@@ -42,6 +42,23 @@ local function save_section(section)
   return ret
 end
 
+--- Load a logistic session from a saved StableSection
+---@param section LuaLogisticSection
+---@param stable_section StableSection
+---@return LuaLogisticSection
+local function load_section(section, stable_section)
+  section.group = stable_section.group
+  section.active = stable_section.active
+  if stable_section.group == "" then
+    if not stable_section.slots then return section end
+    for _, slot in pairs(stable_section.slots) do
+      section.set_slot(slot.slot, slot.filter)
+    end
+  else
+    section.multiplier = stable_section.multiplier or 1
+  end
+  return section
+end
 
 script.on_event("debug-event", function(event)
   local player = game.get_player(event.player_index)
@@ -74,13 +91,16 @@ local pre_paste
 ---@param event EventData.on_pre_entity_settings_pasted
 local function on_pre_entity_settings_pasted(event)
   if event.destination.type ~= "logistic-container" then return end
-  pre_paste = event.destination.get_logistic_point(defines.logistic_member_index.logistic_container).sections
-  -- if not pre_paste then return end
-  -- for _, section in pairs(pre_paste) do
-  --   game.print(section.valid, {skip=defines.print_skip.never})
-  -- end
+  if event.source.type ~= "assembling-machine" then return end
+  pre_paste = {}
+  for _, section in pairs(event.destination.get_logistic_point(defines.logistic_member_index.logistic_container).sections) do
+    if section.valid and section.is_manual then
+      table.insert(pre_paste, save_section(section))
+    end
+  end
+  -- game.print(serpent.block(pre_paste), {skip=defines.print_skip.never})
 end
--- script.on_event(defines.events.on_pre_entity_settings_pasted, on_pre_entity_settings_pasted)
+script.on_event(defines.events.on_pre_entity_settings_pasted, on_pre_entity_settings_pasted)
 
 ---@param recipe LuaRecipe
 ---@param quality string?
@@ -93,13 +113,38 @@ local function get_group_name(recipe, quality)
   end
 end
 
----@param section LuaLogisticSection
+---@param recipe LuaRecipe
+---@param crafting_speed number
+---@return number
+local function get_multiplier(recipe, crafting_speed)
+  return 30 * crafting_speed / recipe.energy
+end
+
+---@param point LuaLogisticPoint
 ---@param recipe LuaRecipe
 ---@param quality string?
-local function set_section_from_recipe(section, recipe, quality)
+---@return LuaLogisticSection?
+local function add_section_from_recipe(point, recipe, quality, crafting_speed)
+  local has_ingredient_item = false
+  for _, ingredient in pairs(recipe.ingredients) do
+    if ingredient.type == "item" then
+      has_ingredient_item = true
+    end
+  end
+  if not has_ingredient_item then return end
+
+  local section = point.add_section(get_group_name(recipe, quality))
+  if not section then
+    game.print("Error creating logistic group")
+    return
+  end
+
+  -- TODO check if the group already exists
+
   local i = 1
   for _, ingredient in pairs(recipe.ingredients) do
     if ingredient.type == "item" then
+      local value
       if quality and quality ~= "normal" then
         value = {type="item", name=ingredient.name, quality=quality, comparator="="}
       else
@@ -109,14 +154,23 @@ local function set_section_from_recipe(section, recipe, quality)
       i = i + 1
     end
   end
+  section.multiplier = get_multiplier(recipe, crafting_speed)
+  return section
 end
 
----@param recipe LuaRecipe
----@param crafting_speed number
----@return number
-local function get_multiplier(recipe, crafting_speed)
-  return 30 * crafting_speed / recipe.energy
+---@param point LuaLogisticPoint
+---@param stable_section StableSection
+---@return LuaLogisticSection?
+local function add_section_from_stable(point, stable_section)
+  local section = point.add_section(stable_section.group)
+  if not section then
+    game.print("Error creating logistic group")
+    return
+  end
+  load_section(section, stable_section)
+  return section
 end
+
 
 ---@param event EventData.on_entity_settings_pasted
 local function on_entity_settings_pasted(event)
@@ -132,23 +186,11 @@ local function on_entity_settings_pasted(event)
   for i=1,point.sections_count do
     point.remove_section(i)
   end
-  local section = point.add_section(get_group_name(recipe, quality))
-  if not section then
-    game.print("Error creating logistic group")
-    return
+  if pre_paste then
+    for _, stable_section in pairs(pre_paste) do
+      add_section_from_stable(point, stable_section)
+    end
   end
-  set_section_from_recipe(section, recipe, quality)
-  section.multiplier = get_multiplier(recipe, event.source.crafting_speed)
-  -- for _, section in pairs(pre_paste) do
-  --   game.print(serpent.block(section), {skip=defines.print_skip.never})
-  --   if section.valid then
-  --     if section.group ~= "" then
-  --       point.add_section(section.group)
-  --     else
-  --       local new_section = point.add_section()
-  --       new_section.filters = section.filters
-  --     end
-  --   end
-  -- end
+  add_section_from_recipe(point, recipe, quality, event.source.crafting_speed)
 end
 script.on_event(defines.events.on_entity_settings_pasted, on_entity_settings_pasted)
