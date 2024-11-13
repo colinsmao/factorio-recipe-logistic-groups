@@ -101,35 +101,6 @@ script.on_event("debug-event", function(event)
   end
 end)
 
-local is_alt_mode = false
-script.on_event("alt-paste-mode", function(event)
-  local player = game.get_player(event.player_index)
-  if not player then return end
-  if not player.entity_copy_source or player.entity_copy_source.type ~= "assembling-machine" then return end
-  local entities = player.surface.find_entities_filtered{type = "logistic-container", position=event.cursor_position}
-  for _, entity in pairs(entities) do
-    is_alt_mode = true
-    entity.copy_settings(player.entity_copy_source, player)  -- will fire on settings pasted events
-  end
-end)
-
-local pre_paste
----@param event EventData.on_pre_entity_settings_pasted
-script.on_event(defines.events.on_pre_entity_settings_pasted, function(event)
-  if event.destination.type ~= "logistic-container" then return end
-  if event.source.type ~= "assembling-machine" then return end
-  if is_alt_mode then
-    pre_paste = {}
-    for _, section in pairs(event.destination.get_logistic_point(defines.logistic_member_index.logistic_container).sections) do
-      if section.valid and section.is_manual then
-        table.insert(pre_paste, save_section(section))
-      end
-    end
-    is_alt_mode = false  -- reset alt mode flag for the next event
-    -- game.print(serpent.block(pre_paste), {skip=defines.print_skip.never})
-  end
-end)
-
 
 ---@param recipe LuaRecipe
 ---@param quality string?
@@ -213,8 +184,36 @@ local function add_section_from_stable(point, stable_section)
 end
 
 
+script.on_event("alt-paste-mode", function(event)
+  local player = game.get_player(event.player_index)
+  if not player then return end
+  if not player.entity_copy_source or player.entity_copy_source.type ~= "assembling-machine" then return end
+  local entities = player.surface.find_entities_filtered{type = "logistic-container", position=event.cursor_position}
+  if #entities >= 1 then
+    storage.is_alt_mode[event.player_index] = true
+    for _, entity in pairs(entities) do
+      entity.copy_settings(player.entity_copy_source, player)  -- will fire on_settings_pasted events
+    end
+  end
+end)
+
+
+script.on_event(defines.events.on_pre_entity_settings_pasted, function(event)
+  if event.destination.type ~= "logistic-container" then return end
+  if event.source.type ~= "assembling-machine" then return end
+  if storage.is_alt_mode[event.player_index] then
+    storage.pre_paste[event.player_index] = {}
+    for _, section in pairs(event.destination.get_logistic_point(defines.logistic_member_index.logistic_container).sections) do
+      if section.valid and section.is_manual then
+        table.insert(storage.pre_paste[event.player_index], save_section(section))
+      end
+    end
+    storage.is_alt_mode[event.player_index] = false  -- reset alt mode flag for the next event
+  end
+end)
+
+
 script.on_event(defines.events.on_entity_settings_pasted, function(event)
-  -- if not pre_paste then return end
   if event.destination.type ~= "logistic-container" then return end
   if event.source.type ~= "assembling-machine" then return end
   local point = event.destination.get_logistic_point(defines.logistic_member_index.logistic_container)
@@ -226,10 +225,10 @@ script.on_event(defines.events.on_entity_settings_pasted, function(event)
   for i=point.sections_count,1,-1 do
     point.remove_section(i)
   end
-  if pre_paste then
+  if storage.pre_paste[event.player_index] then
     local group_name = get_group_name(recipe, quality)
     local found_group = false
-    for _, stable_section in pairs(pre_paste) do
+    for _, stable_section in pairs(storage.pre_paste[event.player_index]) do
       local section = add_section_from_stable(point, stable_section)
       if not section then return end
       if not found_group and section.active and section.group == group_name then
@@ -241,7 +240,7 @@ script.on_event(defines.events.on_entity_settings_pasted, function(event)
     if not found_group then
       add_section_from_recipe(point, recipe, quality, event.source.crafting_speed)
     end
-    pre_paste = nil
+    storage.pre_paste[event.player_index] = nil
   else
     add_section_from_recipe(point, recipe, quality, event.source.crafting_speed)
   end
@@ -314,5 +313,18 @@ script.on_event(defines.events.on_entity_logistic_slot_changed, function(event)
   end
 end)
 
+
+script.on_init(function()
+  storage.is_alt_mode = {}  -- player_index: mode of latest paste event
+  storage.pre_paste = {}
+end)
+
+-- script.on_load(function()
+-- end)
+
+script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
+  storage.is_alt_mode = storage.is_alt_mode or {}  -- TESTING
+  storage.pre_paste = storage.pre_paste or {}
+end)
 
 
