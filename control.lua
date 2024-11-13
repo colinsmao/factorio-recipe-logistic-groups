@@ -8,6 +8,16 @@
 ---@field slots SlotFilter[]?
 local StableSection = {}
 
+---@param section LuaLogisticSection
+---@param index integer
+---@param filter LogisticFilter
+local function set_slot_safe(section, index, filter)
+  -- safe setting of slots that doesnt cause infinite on_entity_logistic_slot_changed recursion
+  storage.prevent_recursion = true
+  section.set_slot(index, filter)
+  storage.prevent_recursion = false
+end
+
 --- Returns a mapping of slot_id: LogisticFilter for a given logistic section
 ---@param section LuaLogisticSection
 ---@return SlotFilter[]
@@ -19,7 +29,7 @@ local function get_slot_filters(section)
     if filter.value then
       table.insert(ret, {slot=i, filter=filter})
       n = n + 1
-      if n > section.filters_count then break end
+      if n >= section.filters_count then break end
     end
   end
   return ret
@@ -52,7 +62,7 @@ local function load_section(section, stable_section)
   if stable_section.group == "" then
     if not stable_section.slots then return section end
     for _, slot in pairs(stable_section.slots) do
-      section.set_slot(slot.slot, slot.filter)
+      set_slot_safe(section, slot.slot, slot.filter)
     end
   else
     section.multiplier = stable_section.multiplier or 1
@@ -79,11 +89,13 @@ script.on_event("debug-event", function(event)
     local entities = player.surface.find_entities_filtered{type = "logistic-container", position=event.cursor_position}
     for _, entity in pairs(entities) do
       local point = entity.get_logistic_point(defines.logistic_member_index.logistic_container)
-      point.remove_section(1)
+      -- point.remove_section(1)
       for _, section in pairs(point.sections) do
         -- section.group = "test1"
-        -- section.set_slot(4, {value="iron-plate", min=50})
-        game.print(section.group.."."..section.index, {skip=defines.print_skip.never})
+        -- set_slot_safe(section, 4, {value="iron-plate", min=50})
+        for _, filter in pairs(section.filters) do
+          game.print(serpent.block(filter), {skip=defines.print_skip.never})
+        end
       end
     end
   end
@@ -103,7 +115,7 @@ end)
 
 local pre_paste
 ---@param event EventData.on_pre_entity_settings_pasted
-local function on_pre_entity_settings_pasted(event)
+script.on_event(defines.events.on_pre_entity_settings_pasted, function(event)
   if event.destination.type ~= "logistic-container" then return end
   if event.source.type ~= "assembling-machine" then return end
   if is_alt_mode then
@@ -116,15 +128,15 @@ local function on_pre_entity_settings_pasted(event)
     is_alt_mode = false  -- reset alt mode flag for the next event
     -- game.print(serpent.block(pre_paste), {skip=defines.print_skip.never})
   end
-end
-script.on_event(defines.events.on_pre_entity_settings_pasted, on_pre_entity_settings_pasted)
+end)
+
 
 ---@param recipe LuaRecipe
 ---@param quality string?
 ---@return string
 local function get_group_name(recipe, quality)
   if quality and quality ~= "normal" then
-    return "[recipe]"..recipe.name.."."..quality
+    return "[recipe]["..quality.."]"..recipe.name
   else
     return "[recipe]"..recipe.name
   end
@@ -137,18 +149,36 @@ local function get_multiplier(recipe, crafting_speed)
   return 30 * crafting_speed / recipe.energy
 end
 
+---@param recipe LuaRecipe|LuaRecipePrototype
+---@return boolean
+local function has_item_ingredients(recipe)
+  for _, ingredient in pairs(recipe.ingredients) do
+    if ingredient.type == "item" then
+      return true
+    end
+  end
+  return false
+end
+
+---@param ingredient Ingredient
+---@param quality string?
+---@return LogisticFilter
+local function build_filter(ingredient, quality)
+  local value
+  if quality and quality ~= "normal" then
+    value = {type="item", name=ingredient.name, quality=quality, comparator="="}
+  else
+    value = ingredient.name
+  end
+  return {value=value, min=ingredient.amount}
+end
+
 ---@param point LuaLogisticPoint
 ---@param recipe LuaRecipe
 ---@param quality string?
 ---@return LuaLogisticSection?
 local function add_section_from_recipe(point, recipe, quality, crafting_speed)
-  local has_ingredient_item = false
-  for _, ingredient in pairs(recipe.ingredients) do
-    if ingredient.type == "item" then
-      has_ingredient_item = true
-    end
-  end
-  if not has_ingredient_item then return end
+  if not has_item_ingredients(recipe) then return end  -- skip create section if there are no item ingredients
 
   local section = point.add_section(get_group_name(recipe, quality))
   if not section then
@@ -156,18 +186,12 @@ local function add_section_from_recipe(point, recipe, quality, crafting_speed)
     return
   end
 
-  -- TODO check if the group already exists
+  if section.filters_count > 0 then return section end  -- the group already exists
 
   local i = 1
   for _, ingredient in pairs(recipe.ingredients) do
     if ingredient.type == "item" then
-      local value
-      if quality and quality ~= "normal" then
-        value = {type="item", name=ingredient.name, quality=quality, comparator="="}
-      else
-        value = ingredient.name
-      end
-      section.set_slot(i, {value=value, min=ingredient.amount})
+      set_slot_safe(section, i, build_filter(ingredient, quality))
       i = i + 1
     end
   end
@@ -189,8 +213,7 @@ local function add_section_from_stable(point, stable_section)
 end
 
 
----@param event EventData.on_entity_settings_pasted
-local function on_entity_settings_pasted(event)
+script.on_event(defines.events.on_entity_settings_pasted, function(event)
   -- if not pre_paste then return end
   if event.destination.type ~= "logistic-container" then return end
   if event.source.type ~= "assembling-machine" then return end
@@ -225,5 +248,71 @@ local function on_entity_settings_pasted(event)
   if point.sections_count == 0 then
     point.add_section("")  -- add an empty section if nothing was pasted (to match vanilla behaviour)
   end
+end)
+
+---@param recipe LuaRecipe|LuaRecipePrototype
+---@param n integer
+---@return Ingredient?
+local function get_nth_item(recipe, n)
+  local i = 1
+  for _, ingredient in pairs(recipe.ingredients) do
+    if ingredient.type == "item" then
+      if i == n then return ingredient end
+      i = i + 1
+    end
+  end
+  return nil
 end
-script.on_event(defines.events.on_entity_settings_pasted, on_entity_settings_pasted)
+
+---@param section LuaLogisticSection
+---@param item string
+---@param quality string?
+---@return integer?
+local function get_filter_index(section, item, quality)
+  quality = quality or "normal"
+  -- game.print(item.."."..quality)
+  local n = 0
+  for i=1,4 do
+    local filter = section.get_slot(i)
+    -- game.print(i..serpent.block(filter))
+    if filter.value then
+      if filter.value.name == item and filter.value.quality == quality and filter.value.comparator == "=" then
+        return i
+      end
+      n = n + 1
+      if n >= section.filters_count then break end
+    end
+  end
+end
+
+script.on_event(defines.events.on_entity_logistic_slot_changed, function(event)
+  -- game.print("slot:"..event.slot_index)
+  if storage.prevent_recursion then return end
+  if event.section.group:sub(1, 8) ~= "[recipe]" then return end
+  local name = event.section.group:sub(9)
+  local quality
+  if name:sub(1,1) == "[" then
+    local j = name:find("]")
+    if not j or j == 2 then return end
+    quality = name:sub(2, j-1)
+    if not prototypes.quality[quality] then return end
+    name = name:sub(j+1)
+  end
+  local recipe = prototypes.recipe[name]
+  if not recipe then return end
+  local item = get_nth_item(recipe, event.slot_index)
+  if not item then  -- slot index > num items
+    event.section.clear_slot(event.slot_index)
+  else
+    -- find and clear filter for item if it already exists (ie was moved)
+    local i = get_filter_index(event.section, item.name, quality)
+    if i and i ~= event.slot_index then
+      event.section.clear_slot(i)
+    end
+    -- then write it back to the original index location
+    set_slot_safe(event.section, event.slot_index, build_filter(item, quality))
+  end
+end)
+
+
+
