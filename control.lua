@@ -79,11 +79,25 @@ script.on_event("debug-event", function(event)
     local entities = player.surface.find_entities_filtered{type = "logistic-container", position=event.cursor_position}
     for _, entity in pairs(entities) do
       local point = entity.get_logistic_point(defines.logistic_member_index.logistic_container)
+      point.remove_section(1)
       for _, section in pairs(point.sections) do
-        section.group = "test1"
+        -- section.group = "test1"
         -- section.set_slot(4, {value="iron-plate", min=50})
+        game.print(section.group.."."..section.index, {skip=defines.print_skip.never})
       end
     end
+  end
+end)
+
+local is_alt_mode = false
+script.on_event("alt-paste-mode", function(event)
+  local player = game.get_player(event.player_index)
+  if not player then return end
+  if not player.entity_copy_source or player.entity_copy_source.type ~= "assembling-machine" then return end
+  local entities = player.surface.find_entities_filtered{type = "logistic-container", position=event.cursor_position}
+  for _, entity in pairs(entities) do
+    is_alt_mode = true
+    entity.copy_settings(player.entity_copy_source, player)  -- will fire on settings pasted events
   end
 end)
 
@@ -92,13 +106,16 @@ local pre_paste
 local function on_pre_entity_settings_pasted(event)
   if event.destination.type ~= "logistic-container" then return end
   if event.source.type ~= "assembling-machine" then return end
-  pre_paste = {}
-  for _, section in pairs(event.destination.get_logistic_point(defines.logistic_member_index.logistic_container).sections) do
-    if section.valid and section.is_manual then
-      table.insert(pre_paste, save_section(section))
+  if is_alt_mode then
+    pre_paste = {}
+    for _, section in pairs(event.destination.get_logistic_point(defines.logistic_member_index.logistic_container).sections) do
+      if section.valid and section.is_manual then
+        table.insert(pre_paste, save_section(section))
+      end
     end
+    is_alt_mode = false  -- reset alt mode flag for the next event
+    -- game.print(serpent.block(pre_paste), {skip=defines.print_skip.never})
   end
-  -- game.print(serpent.block(pre_paste), {skip=defines.print_skip.never})
 end
 script.on_event(defines.events.on_pre_entity_settings_pasted, on_pre_entity_settings_pasted)
 
@@ -183,14 +200,30 @@ local function on_entity_settings_pasted(event)
   if not recipe then return end
   if quality then quality = quality.name end
 
-  for i=1,point.sections_count do
+  for i=point.sections_count,1,-1 do
     point.remove_section(i)
   end
   if pre_paste then
+    local group_name = get_group_name(recipe, quality)
+    local found_group = false
     for _, stable_section in pairs(pre_paste) do
-      add_section_from_stable(point, stable_section)
+      local section = add_section_from_stable(point, stable_section)
+      if not section then return end
+      if not found_group and section.active and section.group == group_name then
+        -- if an active section already exists, increment its multiplier instead of creating a new group
+        section.multiplier = section.multiplier + get_multiplier(recipe, event.source.crafting_speed)
+        found_group = true
+      end
     end
+    if not found_group then
+      add_section_from_recipe(point, recipe, quality, event.source.crafting_speed)
+    end
+    pre_paste = nil
+  else
+    add_section_from_recipe(point, recipe, quality, event.source.crafting_speed)
   end
-  add_section_from_recipe(point, recipe, quality, event.source.crafting_speed)
+  if point.sections_count == 0 then
+    point.add_section("")  -- add an empty section if nothing was pasted (to match vanilla behaviour)
+  end
 end
 script.on_event(defines.events.on_entity_settings_pasted, on_entity_settings_pasted)
