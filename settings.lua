@@ -4,7 +4,7 @@ data:extend({
     name = "primary-mode",
     setting_type = "runtime-per-user",
     default_value = "overwrite",
-    allowed_values = { "overwrite", "additive" },
+    allowed_values = { "vanilla", "overwrite", "additive" },
     order = '2a',
   },
   {
@@ -12,7 +12,7 @@ data:extend({
     name = "alternate-mode",
     setting_type = "runtime-per-user",
     default_value = "additive",
-    allowed_values = { "disabled", "overwrite", "additive" },
+    allowed_values = { "disabled", "vanilla", "overwrite", "additive" },
     order = '2b',
   },
   {
@@ -20,7 +20,7 @@ data:extend({
     name = "multiplier-mode",
     setting_type = "runtime-per-user",
     default_value = "duration-speed",
-    allowed_values = { "constant-recipes", "constant-items", "constant-stacks", "duration-base", "duration-speed" },
+    allowed_values = { "duration-speed", "duration-base", "constant-recipes", "constant-items", "constant-stacks" },
     order = '4a',
   },
   {
@@ -36,9 +36,16 @@ data:extend({
     type = "int-setting",
     name = "multiplier-constant",
     setting_type = "runtime-per-user",
-    default_value = 1,
+    default_value = 100,
     minimum_value = 1,
-    maximum_value = 1000,
     order = '4c',
+  },
+  {
+    type = "int-setting",
+    name = "multiplier-max",
+    setting_type = "runtime-per-user",
+    default_value = 100,
+    minimum_value = 0,
+    order = '4d',
   },
 })

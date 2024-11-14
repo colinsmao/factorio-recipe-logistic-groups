@@ -103,21 +103,60 @@ end)
 
 
 ---@param recipe LuaRecipe
----@param quality string?
+---@param quality string
 ---@return string
 local function get_group_name(recipe, quality)
-  if quality and quality ~= "normal" then
-    return "[recipe]["..quality.."]"..recipe.name
-  else
-    return "[recipe]"..recipe.name
+  return "[recipe="..recipe.name..",quality="..quality.."]"
+end
+
+---@param product Product?
+---@return number
+local function get_product_count(product)
+  if not product then return 1 end
+  local amount = product.amount
+  if not amount then
+    amount = (product.amount_max + product.amount_min) / 2
   end
+  return amount * product.probability
 end
 
 ---@param recipe LuaRecipe
 ---@param crafting_speed number
+---@param player_index integer
 ---@return number
-local function get_multiplier(recipe, crafting_speed)
-  return 30 * crafting_speed / recipe.energy
+local function get_multiplier(recipe, crafting_speed, player_index)
+  local player_settings = settings.get_player_settings(player_index)
+  local multiplier_mode = player_settings["multiplier-mode"].value
+  -- , "constant-items", "constant-stacks", "duration-base", "duration-speed"
+  local multiplier = 1
+  if multiplier_mode == "duration-speed" then
+    multiplier = player_settings["multiplier-duration"].value * crafting_speed / recipe.energy
+  elseif multiplier_mode == "duration-base" then
+    multiplier = player_settings["multiplier-duration"].value / recipe.energy
+  elseif multiplier_mode == "constant-recipes" then
+    multiplier = player_settings["multiplier-constant"].value
+  elseif multiplier_mode == "constant-items" or multiplier_mode == "constant-stacks" then
+    local product = recipe.prototype.main_product
+    if not product and #recipe.products == 1 then
+      product = recipe.products[1]
+    end
+    local stack_size = 1
+    if multiplier_mode == "constant-stacks" and product then
+      if product.type == "item" then
+        local proto = prototypes.item[product.name]
+        if proto then
+          stack_size = proto.stack_size
+        end
+      elseif product.type == "fluid" then
+        stack_size = 500
+      end
+    end
+    multiplier = player_settings["multiplier-constant"].value * stack_size / get_product_count(product)
+  end
+  if player_settings["multiplier-max"].value > 0 then
+    return math.min(multiplier, player_settings["multiplier-max"].value)
+  end
+  return multiplier
 end
 
 ---@param recipe LuaRecipe|LuaRecipePrototype
@@ -132,23 +171,17 @@ local function has_item_ingredients(recipe)
 end
 
 ---@param ingredient Ingredient
----@param quality string?
+---@param quality string
 ---@return LogisticFilter
 local function build_filter(ingredient, quality)
-  local value
-  if quality and quality ~= "normal" then
-    value = {type="item", name=ingredient.name, quality=quality, comparator="="}
-  else
-    value = ingredient.name
-  end
-  return {value=value, min=ingredient.amount}
+  return {value={type="item", name=ingredient.name, quality=quality, comparator="="}, min=ingredient.amount}
 end
 
 ---@param point LuaLogisticPoint
 ---@param recipe LuaRecipe
----@param quality string?
+---@param quality string
 ---@return LuaLogisticSection?
-local function add_section_from_recipe(point, recipe, quality, crafting_speed)
+local function add_section_from_recipe(point, recipe, quality)
   if not has_item_ingredients(recipe) then return end  -- skip create section if there are no item ingredients
 
   local section = point.add_section(get_group_name(recipe, quality))
@@ -166,7 +199,6 @@ local function add_section_from_recipe(point, recipe, quality, crafting_speed)
       i = i + 1
     end
   end
-  section.multiplier = get_multiplier(recipe, crafting_speed)
   return section
 end
 
@@ -184,65 +216,86 @@ local function add_section_from_stable(point, stable_section)
 end
 
 
-script.on_event("alt-paste-mode", function(event)
+local function get_paste_mode(player_index)
+  if storage.is_alt_mode[player_index] then
+    return settings.get_player_settings(player_index)["alternate-mode"].value
+  else
+    return settings.get_player_settings(player_index)["primary-mode"].value
+  end
+end
+
+
+script.on_event("alt-paste-event", function(event)
+  if settings.get_player_settings(event.player_index)["alternate-mode"].value == "disabled" then return end
   local player = game.get_player(event.player_index)
   if not player then return end
   if not player.entity_copy_source or player.entity_copy_source.type ~= "assembling-machine" then return end
   local entities = player.surface.find_entities_filtered{type = "logistic-container", position=event.cursor_position}
-  if #entities >= 1 then
+  for _, entity in pairs(entities) do
     storage.is_alt_mode[event.player_index] = true
-    for _, entity in pairs(entities) do
-      entity.copy_settings(player.entity_copy_source, player)  -- will fire on_settings_pasted events
-    end
+    entity.copy_settings(player.entity_copy_source, player)  -- will fire on_settings_pasted events
   end
 end)
 
 
 script.on_event(defines.events.on_pre_entity_settings_pasted, function(event)
-  if event.destination.type ~= "logistic-container" then return end
-  if event.source.type ~= "assembling-machine" then return end
-  if storage.is_alt_mode[event.player_index] then
-    storage.pre_paste[event.player_index] = {}
+  if event.destination.type ~= "logistic-container" or event.source.type ~= "assembling-machine" then return end
+  if get_paste_mode(event.player_index) == "additive" then
+    -- save the pre-paste state of the logistic container, to restore after the paste
+    local tbl = {}
     for _, section in pairs(event.destination.get_logistic_point(defines.logistic_member_index.logistic_container).sections) do
       if section.valid and section.is_manual then
-        table.insert(storage.pre_paste[event.player_index], save_section(section))
+        table.insert(tbl, save_section(section))
       end
     end
-    storage.is_alt_mode[event.player_index] = false  -- reset alt mode flag for the next event
+    storage.pre_paste[event.player_index] = tbl
+    -- storage.is_alt_mode[event.player_index] = false  -- reset alt mode flag for the next event
   end
 end)
 
 
 script.on_event(defines.events.on_entity_settings_pasted, function(event)
-  if event.destination.type ~= "logistic-container" then return end
-  if event.source.type ~= "assembling-machine" then return end
+  local paste_mode = get_paste_mode(event.player_index)
+  storage.is_alt_mode[event.player_index] = false  -- reset alt mode flag for the next event
+  if paste_mode == "vanilla" then return end
+
+  if event.destination.type ~= "logistic-container" or event.source.type ~= "assembling-machine" then return end
   local point = event.destination.get_logistic_point(defines.logistic_member_index.logistic_container)
   if not point then return end
   local recipe, quality = event.source.get_recipe()
   if not recipe then return end
-  if quality then quality = quality.name end
+  if quality then
+    quality = quality.name
+  else
+    quality = "normal"
+  end
 
-  for i=point.sections_count,1,-1 do
+  for i=point.sections_count,1,-1 do  -- since it was just pasted, I think there should only ever be one manual section
     point.remove_section(i)
   end
-  if storage.pre_paste[event.player_index] then
+  if paste_mode == "additive" and storage.pre_paste[event.player_index] then
     local group_name = get_group_name(recipe, quality)
     local found_group = false
     for _, stable_section in pairs(storage.pre_paste[event.player_index]) do
       local section = add_section_from_stable(point, stable_section)
-      if not section then return end
-      if not found_group and section.active and section.group == group_name then
+      if not found_group and section and section.active and section.group == group_name then
         -- if an active section already exists, increment its multiplier instead of creating a new group
-        section.multiplier = section.multiplier + get_multiplier(recipe, event.source.crafting_speed)
+        section.multiplier = section.multiplier + get_multiplier(recipe, event.source.crafting_speed, event.player_index)
         found_group = true
       end
     end
     if not found_group then
-      add_section_from_recipe(point, recipe, quality, event.source.crafting_speed)
+      local section = add_section_from_recipe(point, recipe, quality)
+      if section then
+        section.multiplier = get_multiplier(recipe, event.source.crafting_speed, event.player_index)
+      end
     end
     storage.pre_paste[event.player_index] = nil
-  else
-    add_section_from_recipe(point, recipe, quality, event.source.crafting_speed)
+  else  -- paste_mode == "overwrite"
+    local section = add_section_from_recipe(point, recipe, quality)
+    if section then
+      section.multiplier = get_multiplier(recipe, event.source.crafting_speed, event.player_index)
+    end
   end
   if point.sections_count == 0 then
     point.add_section("")  -- add an empty section if nothing was pasted (to match vanilla behaviour)
@@ -265,10 +318,9 @@ end
 
 ---@param section LuaLogisticSection
 ---@param item string
----@param quality string?
+---@param quality string
 ---@return integer?
 local function get_filter_index(section, item, quality)
-  quality = quality or "normal"
   -- game.print(item.."."..quality)
   local n = 0
   for i=1,4 do
@@ -285,38 +337,35 @@ local function get_filter_index(section, item, quality)
 end
 
 script.on_event(defines.events.on_entity_logistic_slot_changed, function(event)
-  -- game.print("slot:"..event.slot_index)
+  -- Enforce structure of [recipe=x,quality=y] logistic groups
   if storage.prevent_recursion then return end
-  if event.section.group:sub(1, 8) ~= "[recipe]" then return end
-  local name = event.section.group:sub(9)
-  local quality
-  if name:sub(1,1) == "[" then
-    local j = name:find("]")
-    if not j or j == 2 then return end
-    quality = name:sub(2, j-1)
-    if not prototypes.quality[quality] then return end
-    name = name:sub(j+1)
-  end
-  local recipe = prototypes.recipe[name]
+  if event.section.group:sub(1, 8) ~= "[recipe=" then return end
+  if event.section.group:sub(-1) ~= "]" then return end
+  local group = event.section.group:sub(9, -2)  -- trim off [recipe= ]
+  local j, k = group:find(",quality=")
+  if not j or not k then return end
+  local recipe = prototypes.recipe[group:sub(1, j-1)]
   if not recipe then return end
+  local quality = prototypes.quality[group:sub(k+1)]
+  if not quality then return end
   local item = get_nth_item(recipe, event.slot_index)
   if not item then  -- slot index > num items
     event.section.clear_slot(event.slot_index)
   else
     -- find and clear filter for item if it already exists (ie was moved)
-    local i = get_filter_index(event.section, item.name, quality)
+    local i = get_filter_index(event.section, item.name, quality.name)
     if i and i ~= event.slot_index then
       event.section.clear_slot(i)
     end
     -- then write it back to the original index location
-    set_slot_safe(event.section, event.slot_index, build_filter(item, quality))
+    set_slot_safe(event.section, event.slot_index, build_filter(item, quality.name))
   end
 end)
 
 
 script.on_init(function()
   storage.is_alt_mode = {}  -- player_index: mode of latest paste event
-  storage.pre_paste = {}
+  storage.pre_paste = {}  -- player_index: StableSection to restore
 end)
 
 -- script.on_load(function()

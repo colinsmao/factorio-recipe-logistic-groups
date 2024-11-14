@@ -1,7 +1,7 @@
 data:extend({
   {
     type = "custom-input",
-    name = "alt-paste-mode",
+    name = "alt-paste-event",
     key_sequence = "SHIFT + ALT + mouse-button-1"
   },
   {
