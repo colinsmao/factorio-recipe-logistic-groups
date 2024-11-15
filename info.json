@@ -1,10 +1,10 @@
 {
   "name": "recipe-logistic-groups",
   "author": "kelianmao",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "title": "Recipe Logistic Groups",
   "homepage": "",
-  "description": "Create and use logistic groups when requesting recipes",
+  "description": "Create and use logistic groups when pasting recipes",
   "dependencies": [
     "base"
   ],
