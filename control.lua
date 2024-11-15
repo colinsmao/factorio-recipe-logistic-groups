@@ -70,36 +70,36 @@ local function load_section(section, stable_section)
   return section
 end
 
-script.on_event("debug-event", function(event)
-  local player = game.get_player(event.player_index)
-  if not player then return end
-  local cursor_stack = player.cursor_stack
-  if not cursor_stack or not cursor_stack.valid_for_read then return end
-  if cursor_stack.name == "copper-plate" then
-    local entities = player.surface.find_entities_filtered{type = "logistic-container", position=event.cursor_position}
-    for _, entity in pairs(entities) do
-      game.print(entity.name)
-      local point = entity.get_logistic_point(defines.logistic_member_index.logistic_container)
-      for _, section in pairs(point.sections) do
-        game.print(section.group)
-        game.print(serpent.block(save_section(section)))
-      end
-    end
-  elseif cursor_stack.name == "iron-plate" then
-    local entities = player.surface.find_entities_filtered{type = "logistic-container", position=event.cursor_position}
-    for _, entity in pairs(entities) do
-      local point = entity.get_logistic_point(defines.logistic_member_index.logistic_container)
-      -- point.remove_section(1)
-      for _, section in pairs(point.sections) do
-        -- section.group = "test1"
-        -- set_slot_safe(section, 4, {value="iron-plate", min=50})
-        for _, filter in pairs(section.filters) do
-          game.print(serpent.block(filter), {skip=defines.print_skip.never})
-        end
-      end
-    end
-  end
-end)
+-- script.on_event("debug-event", function(event)
+--   local player = game.get_player(event.player_index)
+--   if not player then return end
+--   local cursor_stack = player.cursor_stack
+--   if not cursor_stack or not cursor_stack.valid_for_read then return end
+--   if cursor_stack.name == "copper-plate" then
+--     local entities = player.surface.find_entities_filtered{type = "logistic-container", position=event.cursor_position}
+--     for _, entity in pairs(entities) do
+--       game.print(entity.name)
+--       local point = entity.get_logistic_point(defines.logistic_member_index.logistic_container)
+--       for _, section in pairs(point.sections) do
+--         game.print(section.group)
+--         game.print(serpent.block(save_section(section)))
+--       end
+--     end
+--   elseif cursor_stack.name == "iron-plate" then
+--     local entities = player.surface.find_entities_filtered{type = "logistic-container", position=event.cursor_position}
+--     for _, entity in pairs(entities) do
+--       local point = entity.get_logistic_point(defines.logistic_member_index.logistic_container)
+--       -- point.remove_section(1)
+--       for _, section in pairs(point.sections) do
+--         -- section.group = "test1"
+--         -- set_slot_safe(section, 4, {value="iron-plate", min=50})
+--         for _, filter in pairs(section.filters) do
+--           game.print(serpent.block(filter), {skip=defines.print_skip.never})
+--         end
+--       end
+--     end
+--   end
+-- end)
 
 
 ---@param recipe LuaRecipe
@@ -291,7 +291,7 @@ script.on_event(defines.events.on_entity_settings_pasted, function(event)
       end
     end
     storage.pre_paste[event.player_index] = nil
-  else  -- paste_mode == "overwrite"
+  else  -- paste_mode == "replace"
     local section = add_section_from_recipe(point, recipe, quality)
     if section then
       section.multiplier = get_multiplier(recipe, event.source.crafting_speed, event.player_index)
@@ -371,9 +371,9 @@ end)
 -- script.on_load(function()
 -- end)
 
-script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
-  storage.is_alt_mode = storage.is_alt_mode or {}  -- TESTING
-  storage.pre_paste = storage.pre_paste or {}
-end)
+-- script.on_event(defines.events.on_runtime_mod_setting_changed, function(event)
+--   storage.is_alt_mode = storage.is_alt_mode or {}  -- TESTING
+--   storage.pre_paste = storage.pre_paste or {}
+-- end)
 
 

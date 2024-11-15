@@ -3,8 +3,8 @@ data:extend({
     type = "string-setting",
     name = "primary-mode",
     setting_type = "runtime-per-user",
-    default_value = "overwrite",
-    allowed_values = { "vanilla", "overwrite", "additive" },
+    default_value = "replace",
+    allowed_values = { "vanilla", "replace", "additive" },
     order = '2a',
   },
   {
@@ -12,7 +12,7 @@ data:extend({
     name = "alternate-mode",
     setting_type = "runtime-per-user",
     default_value = "additive",
-    allowed_values = { "disabled", "vanilla", "overwrite", "additive" },
+    allowed_values = { "disabled", "vanilla", "replace", "additive" },
     order = '2b',
   },
   {
