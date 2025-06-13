@@ -1,10 +1,10 @@
 {
   "name": "recipe-logistic-groups",
   "author": "kelianmao",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "title": "Recipe Logistic Groups",
   "homepage": "",
-  "description": "Create and use logistic groups when pasting recipes",
+  "description": "Create and use logistic groups when copy-pasting recipes from assembling machines to requester chests",
   "dependencies": [
     "base"
   ],
