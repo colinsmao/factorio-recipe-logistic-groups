@@ -4,7 +4,8 @@ Date: 13. 06. 2025
   Features:
     - Support copying to and from ghost entities.
   Gui:
-    - Changed default alternate paste keybind to Shift + Control + Click (from Shift + Alt + Click), so its less likely to accidentally toggle alt mode.
+    - Added flying text when changing recipe logistic group ingredients, to clarify that recipe groups being unchangable is the desired behaviour.
+    - Changed default alternate paste keybind to Shift + Control + Click (from Shift + Alt + Click), so it's less likely to accidentally toggle alt mode.
   Locale:
     - Fixed some locale key errors.
 ---------------------------------------------------------------------------------------------------

@@ -378,6 +378,13 @@ script.on_event(defines.events.on_entity_logistic_slot_changed, function(event)
     -- then write it back to the original index location
     set_slot_safe(event.section, event.slot_index, build_filter(item, quality.name))
   end
+  if event.player_index then
+    local player = game.get_player(event.player_index)
+    if player then
+      player.create_local_flying_text{text={"recipe-logistic-groups.logistic-slot-changed-flying-text"}, create_at_cursor=true}
+      player.play_sound{path="utility/cannot_build"}
+    end
+  end
 end)
 
 
