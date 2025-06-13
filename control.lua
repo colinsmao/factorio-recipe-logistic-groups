@@ -225,13 +225,31 @@ local function get_paste_mode(player_index)
 end
 
 
+---Returns a true if the given entity matches entity_type or is a ghost containing entity_type
+---@param entity LuaEntity
+---@param entity_type string
+---@return boolean
+local function check_entity_type_ghost(entity, entity_type)
+  return (entity.type == entity_type) or (entity.type == "entity-ghost" and entity.ghost_type == entity_type)
+end
+
+
 script.on_event("alt-paste-event", function(event)
   if settings.get_player_settings(event.player_index)["alternate-mode"].value == "disabled" then return end
+
   local player = game.get_player(event.player_index)
   if not player then return end
-  if not player.entity_copy_source or player.entity_copy_source.type ~= "assembling-machine" then return end
+
+  if not player.entity_copy_source or not check_entity_type_ghost(player.entity_copy_source, "assembling-machine") then return end
+
   local entities = player.surface.find_entities_filtered{type = "logistic-container", position=event.cursor_position}
   for _, entity in pairs(entities) do
+    storage.is_alt_mode[event.player_index] = true
+    entity.copy_settings(player.entity_copy_source, player)  -- will fire on_settings_pasted events
+  end
+
+  local entities_ghost = player.surface.find_entities_filtered{type = "entity-ghost", ghost_type = "logistic-container", position=event.cursor_position}
+  for _, entity in pairs(entities_ghost) do
     storage.is_alt_mode[event.player_index] = true
     entity.copy_settings(player.entity_copy_source, player)  -- will fire on_settings_pasted events
   end
@@ -239,7 +257,7 @@ end)
 
 
 script.on_event(defines.events.on_pre_entity_settings_pasted, function(event)
-  if event.destination.type ~= "logistic-container" or event.source.type ~= "assembling-machine" then return end
+  if (not check_entity_type_ghost(event.destination, "logistic-container")) or (not check_entity_type_ghost(event.source, "assembling-machine")) then return end
   if get_paste_mode(event.player_index) == "additive" then
     -- save the pre-paste state of the logistic container, to restore after the paste
     local tbl = {}
@@ -259,7 +277,7 @@ script.on_event(defines.events.on_entity_settings_pasted, function(event)
   storage.is_alt_mode[event.player_index] = false  -- reset alt mode flag for the next event
   if paste_mode == "vanilla" then return end
 
-  if event.destination.type ~= "logistic-container" or event.source.type ~= "assembling-machine" then return end
+  if (not check_entity_type_ghost(event.destination, "logistic-container")) or (not check_entity_type_ghost(event.source, "assembling-machine")) then return end
   local point = event.destination.get_logistic_point(defines.logistic_member_index.logistic_container)
   if not point then return end
   local recipe, quality = event.source.get_recipe()
