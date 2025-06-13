@@ -10,7 +10,7 @@ Fully configurable, including:
 - Configurable multiplier options, based on crafting time, or by product count.
 - Configurable paste options for both the primary and alternate keybinds, including replace, additive, and vanilla (no logistic group).
 
-If using eg "Shift + Alt + Left-Click" for alternate pasting, it is recommended to add "Shift + Alt + Right-click" as an alias for copy, so you do not need to release Alt to copy.
+Note: If using eg "Shift + Control + Left-Click" for alternate pasting, it is recommended to add "Shift + Control + Right-click" as an alias for copy, so you do not need to release Control to copy.
 
 <br/>
 
